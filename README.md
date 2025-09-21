@@ -9,7 +9,7 @@
   - Аргументы командной строки (встроенный модуль argparse)
 
 Установка зависимостей
-  - Убедитесь, что у вас установлен Python 3 с помощью: python3 --version
+  - Убедитесь, что у вас установлен Python 3 с помощью: `python3 --version`
   - Установите OpenCV с помощью pip:  pip3 install opencv-python
   - Проверьте установку:  python3 -c "import cv2; print(cv2.__version__)"
 
