@@ -1,11 +1,21 @@
 import argparse
 import cv2
+import sys
 
 class ShapeDetector:
     def __init__(self):
+        """Инициализирует детектор фигур."""
         pass
 
     def detect(self, c):
+        """Определяет форму контура на основе количества вершин и соотношения сторон.
+
+        Args:
+            c (numpy.ndarray): Контур фигуры.
+
+        Returns:
+            str: Название фигуры ('прямоугольник', 'квадрат' или 'неопознанная').
+        """
         # Инициализируем имя фигуры и аппроксимируем контур
         shape = "неопознанная"
         peri = cv2.arcLength(c, True)
@@ -18,59 +28,82 @@ class ShapeDetector:
             ar = w / float(h)
 
             # Квадрат будет иметь соотношение сторон, близкое к единице, иначе это прямоугольник
-            shape = "square" if ar >= 0.95 and ar <= 1.05 else "rectangle"
+            shape = "квадрат" if ar >= 0.95 and ar <= 1.05 else "прямоугольник"
 
         return shape
 
-# Создаем парсер аргументов и парсим аргументы
-ap = argparse.ArgumentParser()
-ap.add_argument("-i", "--image", required=True,
-    help="путь к входному изображению")
-args = vars(ap.parse_args())
+def main():
+    """Основная функция для обнаружения прямоугольных объектов на изображении.
 
-# Загружаем изображение и изменяем его размер для лучшей аппроксимации фигур
-image = cv2.imread(args["image"])
-resized = cv2.resize(image, (300, int(300 * image.shape[0] / image.shape[1])))
-ratio = image.shape[0] / float(resized.shape[0])
+    Обрабатывает изображение, определяет прямоугольные объекты и визуализирует результат.
+    """
+    # Создаем парсер аргументов и парсим аргументы
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-i", "--image", required=True,
+                    help="путь к входному изображению")
+    ap.add_argument("-t", "--threshold", type=int, default=60,
+                    help="порог для бинаризации (по умолчанию 60)")
+    ap.add_argument("-o", "--output", type=str,
+                    help="путь для сохранения результирующего изображения")
+    args = vars(ap.parse_args())
 
-# Преобразуем уменьшенное изображение в градации серого, слегка размыкаем его и применяем порог
-gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-thresh = cv2.threshold(blurred, 60, 255, cv2.THRESH_BINARY)[1]
+    # Загружаем изображение и обрабатываем возможные ошибки
+    try:
+        image = cv2.imread(args["image"])
+        if image is None:
+            raise ValueError(f"Не удалось загрузить изображение: {args['image']}")
+    except Exception as e:
+        print(f"Ошибка при загрузке изображения: {e}")
+        sys.exit(1)
 
-# Находим контуры в пороговом изображении
-contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
-    cv2.CHAIN_APPROX_SIMPLE)
+    # Изменяем размер изображения для лучшей аппроксимации фигур
+    resized = cv2.resize(image, (300, int(300 * image.shape[0] / image.shape[1])))
+    ratio = image.shape[0] / float(resized.shape[0])
 
-sd = ShapeDetector()
+    # Преобразуем уменьшенное изображение в градации серого, слегка размыкаем его и применяем порог
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.threshold(blurred, args["threshold"], 255, cv2.THRESH_BINARY)[1]
 
-rectangles_found = 0
-output_image = image.copy()
+    # Находим контуры в пороговом изображении
+    contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
 
-# Проходим по всем контурам
-for c in contours:
-    # Вычисляем центр контура, затем определяем имя фигуры только по контуру
-    M = cv2.moments(c)
-    if M["m00"] == 0:
-        continue
-    cX = int((M["m10"] / M["m00"]) * ratio)
-    cY = int((M["m01"] / M["m00"]) * ratio)
-    shape = sd.detect(c)
+    sd = ShapeDetector()
 
-    # Обрабатываем только прямоугольники и квадраты
-    if shape in ["rectangle", "square"]:
-        rectangles_found += 1
-        # Умножаем координаты контура (x, y) на коэффициент масштабирования,
-        # затем рисуем контуры и имя фигуры на изображении
-        c = c.astype("float")
-        c *= ratio
-        c = c.astype("int")
-        cv2.drawContours(output_image, [c], -1, (0, 255, 0), 2)
-        cv2.putText(output_image, "rectangle", (cX, cY), cv2.FONT_HERSHEY_SIMPLEX,
-            0.5, (255, 255, 255), 2)
+    rectangles_found = 0
+    output_image = image.copy()
 
-# Показываем результирующее изображение
-cv2.imshow("Изображение", output_image)
-cv2.waitKey(0)
+    # Проходим по всем контурам
+    for c in contours:
+        # Вычисляем центр контура, затем определяем имя фигуры только по контуру
+        M = cv2.moments(c)
+        if M["m00"] == 0:
+            continue
+        cX = int((M["m10"] / M["m00"]) * ratio)
+        cY = int((M["m01"] / M["m00"]) * ratio)
+        shape = sd.detect(c)
 
-print(f"Найдено {rectangles_found} прямоугольных объектов.")
+        # Обрабатываем только прямоугольники и квадраты
+        if shape in ["прямоугольник", "квадрат"]:
+            rectangles_found += 1
+            # Умножаем координаты контура (x, y) на коэффициент масштабирования,
+            # затем рисуем контуры и имя фигуры на изображении
+            c = c.astype("float")
+            c *= ratio
+            c = c.astype("int")
+            cv2.drawContours(output_image, [c], -1, (0, 255, 0), 2)
+            cv2.putText(output_image, "rectangle", (cX, cY), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (255, 255, 255), 2)
+
+    # Показываем и сохраняем результирующее изображение
+    cv2.imshow("Изображение", output_image)
+    if args["output"]:
+        cv2.imwrite(args["output"], output_image)
+        print(f"Результирующее изображение сохранено как: {args['output']}")
+    cv2.waitKey(0)
+
+    print(f"Найдено {rectangles_found} прямоугольных объектов.")
+
+if __name__ == "__main__":
+    main()
