@@ -32,6 +32,45 @@ class ShapeDetector:
 
         return shape
 
+def resize_image(image, target_width=300):
+    """Масштабирует изображение до заданной ширины с сохранением пропорций.
+
+    Args:
+        image (numpy.ndarray): Исходное изображение.
+        target_width (int): Целевая ширина (по умолчанию 300).
+
+    Returns:
+        tuple: Измененное изображение и коэффициент масштабирования.
+    """
+    ratio = image.shape[0] / float(image.shape[1])
+    resized = cv2.resize(image, (target_width, int(target_width * ratio)))
+    return resized, image.shape[0] / float(resized.shape[0])
+
+def binarize_image(image, threshold):
+    """Преобразует изображение в бинарную форму: градации серого, размытие и порог.
+
+    Args:
+        image (numpy.ndarray): Исходное изображение.
+        threshold (int): Порог для бинаризации.
+
+    Returns:
+        numpy.ndarray: Бинаризованное изображение.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    return cv2.threshold(blurred, threshold, 255, cv2.THRESH_BINARY)[1]
+
+def find_contours(image):
+    """Находит контуры в бинаризованном изображении.
+
+    Args:
+        image (numpy.ndarray): Бинаризованное изображение.
+
+    Returns:
+        list: Список контуров.
+    """
+    return cv2.findContours(image.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+
 def main():
     """Основная функция для обнаружения прямоугольных объектов на изображении.
 
@@ -47,6 +86,11 @@ def main():
                     help="путь для сохранения результирующего изображения")
     args = vars(ap.parse_args())
 
+    # Проверяем корректность порога
+    if args["threshold"] < 0:
+        print("Ошибка: Порог должен быть неотрицательным числом.")
+        sys.exit(1)
+
     # Загружаем изображение и обрабатываем возможные ошибки
     try:
         image = cv2.imread(args["image"])
@@ -56,18 +100,14 @@ def main():
         print(f"Ошибка при загрузке изображения: {e}")
         sys.exit(1)
 
-    # Изменяем размер изображения для лучшей аппроксимации фигур
-    resized = cv2.resize(image, (300, int(300 * image.shape[0] / image.shape[1])))
-    ratio = image.shape[0] / float(resized.shape[0])
+    # Масштабируем изображение
+    resized, ratio = resize_image(image)
 
-    # Преобразуем уменьшенное изображение в градации серого, слегка размыкаем его и применяем порог
-    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.threshold(blurred, args["threshold"], 255, cv2.THRESH_BINARY)[1]
+    # Бинаризуем изображение
+    thresh = binarize_image(resized, args["threshold"])
 
-    # Находим контуры в пороговом изображении
-    contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
-                                   cv2.CHAIN_APPROX_SIMPLE)
+    # Находим контуры
+    contours = find_contours(thresh)
 
     sd = ShapeDetector()
 
