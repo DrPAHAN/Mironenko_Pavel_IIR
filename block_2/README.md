@@ -42,7 +42,7 @@ python3 cv_1_44_find_contours.py -i 1.png -o plt
 - С минимальной и максимальной площадью:
 
   ```bash
-  python3 cv_1_44_find_contours.py --min_area 50 --max_area 500 -o cv2
+  python3 cv_1_44_find_contours.py --min_area 10 --max_area 100000 -o cv2
   ```
 - С собственным изображением и сохранением результата:
 
