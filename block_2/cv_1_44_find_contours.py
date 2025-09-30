@@ -10,7 +10,16 @@ from skimage import data
 
 def create_default_image(filename: str = "default_image.png") -> np.ndarray:
     """
-    Создает изображение по умолчанию с контурами.
+    Создает изображение по умолчанию с контурами для тестирования.
+
+    Args:
+        filename (str): Имя файла для сохранения изображения по умолчанию (по умолчанию "default_image.png").
+
+    Returns:
+        np.ndarray: Созданное изображение с контурами.
+
+    Notes:
+        Создает изображение размером 300x500 с 5 кругами и 5 прямоугольниками.
     """
     print(f"Файл '{filename}' не найден. Создание изображения по умолчанию.")
     image: np.ndarray = np.zeros((300, 500, 3), dtype="uint8")
@@ -25,8 +34,16 @@ def create_default_image(filename: str = "default_image.png") -> np.ndarray:
 
 def load_image(image_path: Optional[str]) -> Optional[np.ndarray]:
     """
-    Загружает изображение из указанного пути.
-    Если путь не указан или файл отсутствует, создает изображение по умолчанию или использует skimage.data.coins().
+    Загружает изображение из указанного пути или использует альтернативные источники.
+
+    Args:
+        image_path (Optional[str]): Путь к изображению (если None, используется по умолчанию или skimage.data.coins()).
+
+    Returns:
+        Optional[np.ndarray]: Загруженное изображение или None при ошибке.
+
+    Notes:
+        Если файл не найден, создает изображение по умолчанию или загружает coins() из skimage.
     """
     default_filename: str = "default_image.png"
 
@@ -42,7 +59,52 @@ def load_image(image_path: Optional[str]) -> Optional[np.ndarray]:
     else:
         print("Загрузка изображения монет из skimage.data.coins()")
         coins = data.coins()
-        return cv2.cvtColor(coins, cv2.COLOR_RGB2BGR)  # Конвертация для совместимости с OpenCV
+        return cv2.cvtColor(coins, cv2.COLOR_GRAY2BGR)  # Конвертация в BGR для совместимости с OpenCV
+
+def preprocess_image(image: np.ndarray) -> np.ndarray:
+    """
+    Предобрабатывает изображение для улучшения обнаружения контуров.
+
+    Args:
+        image (np.ndarray): Исходное изображение.
+
+    Returns:
+        np.ndarray: Бинаризованное изображение после адаптивной обработки.
+
+    Notes:
+        Использует адаптивную бинаризацию для работы с разными условиями освещения.
+    """
+    gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Адаптивная бинаризация для улучшения обнаружения в разных условиях освещения
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+    return thresh
+
+def validate_args(args: argparse.Namespace) -> bool:
+    """
+    Проверяет корректность входных аргументов.
+
+    Args:
+        args (argparse.Namespace): Объект с аргументами из командной строки.
+
+    Returns:
+        bool: True, если аргументы валидны, False в противном случае.
+
+    Notes:
+        Проверяет, что min_area не отрицательное, max_area не меньше min_area, и output в допустимом диапазоне.
+    """
+    if args.min_area < 0:
+        print("Ошибка: Минимальная площадь (min_area) не может быть отрицательной.")
+        return False
+    if args.max_area < args.min_area:
+        print("Ошибка: Максимальная площадь (max_area) должна быть не меньше минимальной (min_area).")
+        return False
+    if args.output not in ['cv2', 'plt', 'file']:
+        print(f"Ошибка: Неверный режим вывода '{args.output}'. Допустимые значения: cv2, plt, file.")
+        return False
+    if args.image and not os.path.exists(args.image):
+        print(f"Ошибка: Указанный файл изображения '{args.image}' не существует.")
+        return False
+    return True
 
 def find_and_draw_contours(image: np.ndarray, min_area: float = 0, max_area: float = float('inf')) -> Tuple[np.ndarray, int]:
     """
@@ -55,11 +117,13 @@ def find_and_draw_contours(image: np.ndarray, min_area: float = 0, max_area: flo
 
     Returns:
         tuple: Обработанное изображение с отфильтрованными контурами и количество оставшихся контуров.
+
+    Notes:
+        Использует аппроксимацию контуров и минимальное количество вершин для улучшения определения фигур.
     """
     image_with_contours: np.ndarray = image.copy()
 
-    gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    thresh = preprocess_image(image)
 
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     filtered_contours = []
@@ -68,8 +132,12 @@ def find_and_draw_contours(image: np.ndarray, min_area: float = 0, max_area: flo
         # Вычисляем площадь для каждого контура
         area = cv2.contourArea(cnt)
         print(f"Контур с площадью: {area}")  # Логирование для отладки
-        # Оставляем только контуры в заданном диапазоне площадей
-        if min_area <= area <= max_area:
+        
+        # Дополнительные проверки для улучшения определения фигур
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.04 * peri, True)
+        # Фильтрация по площади и минимальному количеству вершин (например, >3 для фигур)
+        if min_area <= area <= max_area and len(approx) >= 3:
             filtered_contours.append(cnt)
 
     # Рисуем отфильтрованные контуры на изображении
@@ -79,6 +147,14 @@ def find_and_draw_contours(image: np.ndarray, min_area: float = 0, max_area: flo
 def display_or_save_image(original_image: np.ndarray, processed_image: np.ndarray, output_mode: str) -> None:
     """
     Отображает или сохраняет исходное и обработанные изображения в зависимости от режима вывода.
+
+    Args:
+        original_image (np.ndarray): Исходное изображение.
+        processed_image (np.ndarray): Обработанное изображение с контурами.
+        output_mode (str): Режим вывода ('cv2', 'plt' или 'file').
+
+    Notes:
+        Комбинирует изображения для отображения или сохранения.
     """
     if output_mode == 'cv2':
         combined_image = np.hstack((original_image, processed_image))
@@ -109,6 +185,9 @@ def display_or_save_image(original_image: np.ndarray, processed_image: np.ndarra
 def main() -> None:
     """
     Инициализирует приложение для обнаружения и фильтрации контуров.
+
+    Notes:
+        Обрабатывает аргументы командной строки, проверяет их валидность и управляет выполнением программы.
     """
     parser = argparse.ArgumentParser(description="Поиск и фильтрация контуров на изображении.")
     parser.add_argument("-i", "--image", type=str, help="Путь к изображению")
@@ -116,6 +195,10 @@ def main() -> None:
     parser.add_argument("-min", "--min_area", type=float, default=0, help="Минимальная площадь контура (по умолчанию 0)")
     parser.add_argument("-max", "--max_area", type=float, default=float('inf'), help="Максимальная площадь контура (по умолчанию бесконечность)")
     args = parser.parse_args()
+
+    # Проверка входных аргументов
+    if not validate_args(args):
+        sys.exit(1)
 
     original_image: Optional[np.ndarray] = load_image(args.image)
 
